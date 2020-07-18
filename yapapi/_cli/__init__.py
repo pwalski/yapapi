@@ -2,6 +2,7 @@ from .market import Demand
 from .payment import Allocation, Invoices
 from .wasm import Wasm
 
+
 class Cli:
     def __init__(self):
         self.allocation = Allocation
