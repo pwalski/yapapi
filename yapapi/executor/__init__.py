@@ -458,6 +458,7 @@ class Executor(AsyncContextManager):
             emit(events.WorkerStarted(agr_id=agreement.id))
 
             try:
+                # raise ValueError("error in new_activity()")
                 act = await activity_api.new_activity(agreement.id)
             except Exception:
                 emit(
@@ -469,6 +470,7 @@ class Executor(AsyncContextManager):
                 raise
             async with act:
                 emit(events.ActivityCreated(act_id=act.id, agr_id=agreement.id))
+                # raise ValueError("error right after creating activity")
 
                 work_context = WorkContext(
                     f"worker-{wid}", node_info, storage_manager, emitter=emit
@@ -497,6 +499,7 @@ class Executor(AsyncContextManager):
                             await batch.prepare()
                             cc = CommandContainer()
                             batch.register(cc)
+                            # raise ValueError("error before sending the script")
                             remote = await act.send(
                                 cc.commands(), stream_output, deadline=batch_deadline
                             )
@@ -508,6 +511,7 @@ class Executor(AsyncContextManager):
                                 emit(evt)
                                 if isinstance(evt, events.CommandExecuted) and not evt.success:
                                     raise CommandExecutionError(evt.command, evt.message)
+                                # raise ValueError("error when executing a command")
 
                             emit(events.GettingResults(agr_id=agreement.id, task_id=task_id))
                             await batch.post()
@@ -515,7 +519,8 @@ class Executor(AsyncContextManager):
                             await accept_payment_for_agreement(agreement.id, partial=True)
 
                         except Exception:
-
+                            # Note: this clause does not catch exceptions emitted in the user's code
+                            # in the worker function
                             try:
                                 await command_generator.athrow(*sys.exc_info())
                             except Exception:
@@ -526,7 +531,7 @@ class Executor(AsyncContextManager):
                                         agr_id=agreement.id, exc_info=sys.exc_info()  # type: ignore
                                     )
                                 )
-                                return
+                                raise
 
             await accept_payment_for_agreement(agreement.id)
             emit(events.WorkerFinished(agr_id=agreement.id))
@@ -603,7 +608,8 @@ class Executor(AsyncContextManager):
                     if task in workers:
                         try:
                             await task
-                        except Exception:
+                        except Exception as e:
+                            logger.info("Worker finished with exception: %s", e)
                             if self._conf.traceback:
                                 traceback.print_exc()
 

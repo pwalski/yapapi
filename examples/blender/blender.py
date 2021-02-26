@@ -36,10 +36,15 @@ async def main(subnet_tag, driver=None, network=None):
     )
 
     async def worker(ctx: WorkContext, tasks):
+
+        # raise ValueError("error at the beginning or worker")
+
         script_dir = pathlib.Path(__file__).resolve().parent
         scene_path = str(script_dir / "cubes.blend")
         ctx.send_file(scene_path, "/golem/resource/scene.blend")
         async for task in tasks:
+            raise ValueError("Error in worker code, after obtaining a task")
+
             frame = task.data
             crops = [{"outfilebasename": "out", "borders_x": [0.0, 1.0], "borders_y": [0.0, 1.0]}]
             ctx.send_json(
@@ -65,7 +70,9 @@ async def main(subnet_tag, driver=None, network=None):
                 # of time for computing a single frame, for other tasks it may be not enough.
                 # If the timeout is exceeded, this worker instance will be shut down and all
                 # remaining tasks, including the current one, will be computed by other providers.
+                # raise ValueError("Error in worker code, before yield")
                 yield ctx.commit(timeout=timedelta(seconds=120))
+                # raise ValueError("Error in worker code, after yield")
                 # TODO: Check if job results are valid
                 # and reject by: task.reject_task(reason = 'invalid file')
                 task.accept_result(result=output_file)

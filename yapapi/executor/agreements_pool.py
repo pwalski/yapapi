@@ -53,11 +53,27 @@ class AgreementsPool:
         for agreement_id in frozenset(self._agreements):
             try:
                 buffered_agreement = self._agreements[agreement_id]
+                assert buffered_agreement.agreement.id == agreement_id
             except IndexError:
                 continue
             task = buffered_agreement.worker_task
             if task is not None and task.done():
-                await self.release_agreement(buffered_agreement.agreement.id)
+                if not task.exception():
+                    await self.release_agreement(buffered_agreement.agreement.id)
+                else:
+                    logger.info("Worker for agreement %s finished with exception, terminating the agreement", agreement_id)
+                    reason = {"message": "Work cancelled", "golem.requestor.code": "Cancelled"}
+                    if not await buffered_agreement.agreement.terminate(reason):
+                        agreement_details = await buffered_agreement.agreement.details()
+                        provider = agreement_details.provider_view.extract(NodeInfo)
+                        logger.warning(
+                            "Couldn't terminate agreement. id=%s, provider=%s",
+                            agreement_id,
+                            provider,
+                        )
+                    logger.info("Removing agreement %s from the pool", agreement_id)
+                    del self._agreements[agreement_id]
+                    self.emitter(events.AgreementTerminated(agr_id=agreement_id, reason=reason))
 
     async def add_proposal(self, score: float, proposal: OfferProposal) -> None:
         """Adds providers' proposal to the pool of available proposals"""
@@ -73,6 +89,7 @@ class AgreementsPool:
             if agreement_with_info is None:
                 return None
             agreement, node_info = agreement_with_info
+            logger.info("use_agreement: calling the callback function")
             task = cbk(agreement, node_info)
             await self._set_worker(agreement.id, task)
             return task
