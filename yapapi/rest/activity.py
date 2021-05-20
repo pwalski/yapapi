@@ -103,16 +103,22 @@ class CommandExecutionError(Exception):
     """The command that failed."""
 
     message: Optional[str]
-    """The command's output, if any."""
+    """Optional error message from exe unit."""
 
-    def __init__(self, command: str, message: Optional[str] = None):
+    stderr: Optional[str]
+    """Stderr from the command."""
+
+    def __init__(self, command: str, message: Optional[str] = None, stderr: Optional[str] = None):
         self.command = command
         self.message = message
+        self.stderr = stderr
 
     def __str__(self) -> str:
         msg = f"Command '{self.command}' failed on provider"
         if self.message:
-            msg += f" with message '{self.message}'"
+            msg += f"; message: '{self.message}'"
+        if self.stderr:
+            msg += f"; stderr: '{self.stderr}'"
         return msg
 
 
@@ -181,14 +187,12 @@ class PollingBatch(Batch):
                 any_new = True
                 assert last_idx == result.index, f"Expected {last_idx}, got {result.index}"
 
-                message = None
-                if result.message:
-                    message = result.message
-                elif result.stdout or result.stderr:
-                    message = json.dumps({"stdout": result.stdout, "stderr": result.stderr})
-
                 kwargs = dict(
-                    cmd_idx=result.index, message=message, success=(result.result.lower() == "ok")
+                    cmd_idx=result.index,
+                    message=result.message,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    success=(result.result.lower() == "ok"),
                 )
                 yield events.CommandEventContext(evt_cls=events.CommandExecuted, kwargs=kwargs)
 
