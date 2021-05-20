@@ -38,7 +38,7 @@ class AgreementsPool:
 
     def __init__(self, emitter):
         self.emitter = emitter
-        self._offer_buffer: Dict[str, _BufferedProposal] = {}  # provider_id -> Proposal
+        self._offer_buffer: Set[_BufferedProposal] = set()
         self._agreements: Dict[str, BufferedAgreement] = {}  # agreement_id -> Agreement
         self._lock = asyncio.Lock()
         # The set of provider ids for which the last agreement creation failed
@@ -63,10 +63,7 @@ class AgreementsPool:
 
     async def add_proposal(self, score: float, proposal: OfferProposal) -> None:
         """Adds providers' proposal to the pool of available proposals"""
-        async with self._lock:
-            self._offer_buffer[proposal.issuer] = _BufferedProposal(
-                datetime.datetime.now(), score, proposal
-            )
+        self._offer_buffer.add(_BufferedProposal(datetime.datetime.now(), score, proposal))
 
     async def use_agreement(self, cbk):
         """Gets an agreement and performs cbk() on it"""
@@ -105,14 +102,14 @@ class AgreementsPool:
             pass
 
         try:
-            offers = list(self._offer_buffer.items())
+            offers = list(self._offer_buffer)
             # Shuffle the offers before picking one with the max score,
             # in case there's more than one with this score.
             random.shuffle(offers)
-            provider_id, offer = max(offers, key=lambda elem: elem[1].score)
+            offer = max(offers, key=lambda o: o.score)
         except ValueError:  # empty pool
             return None
-        del self._offer_buffer[provider_id]
+        self._offer_buffer.remove(offer)
         try:
             agreement = await offer.proposal.create_agreement()
         except asyncio.CancelledError:
@@ -126,6 +123,7 @@ class AgreementsPool:
             provider_activity = agreement_details.provider_view.extract(Activity)
             requestor_activity = agreement_details.requestor_view.extract(Activity)
             node_info = agreement_details.provider_view.extract(NodeInfo)
+            provider_id = offer.proposal.issuer
             logger.debug("New agreement. id: %s, provider: %s", agreement.id, node_info)
             emit(
                 events.AgreementCreated(
