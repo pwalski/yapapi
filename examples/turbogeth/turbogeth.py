@@ -2,7 +2,7 @@ import asyncio
 import enum
 from datetime import timedelta
 import typing
-from typing import Optional, Any
+from typing import Optional, Any, Tuple
 import random
 
 import statemachine
@@ -414,46 +414,35 @@ class TurbogethPayload(Payload):
     min_storage_gib: float = constraint(inf.INF_STORAGE, operator=">=", default=1024)
 
 
-INSTANCES_NEEDED = 3
+INSTANCES_NEEDED = 1
 EXECUTOR_TIMEOUT = timedelta(weeks=100)
 
 
-class TurbogethService(Service):
-    credentials = None
-
-    def post_init(self):
-        self.credentials = {}
-
-    def __repr__(self):
-        srv_repr = super().__repr__()
-        return f"{srv_repr}, credentials: {self.credentials}"
+class JanService(Service):
 
     @staticmethod
     def get_payload():
         return TurbogethPayload(chain="rinkeby")
 
-    async def start(self):
-        deploy_idx = self.ctx.deploy()
-        self.ctx.start()
-        future_results = yield self.ctx.commit()
-        results = await future_results
-        self.credentials = "RECEIVED" or results[deploy_idx]  # (NORMALLY, WOULD BE PARSED)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.run_queue: asyncio.Queue[Tuple[asyncio.Future, Any]] = asyncio.Queue()
+
+    async def test(self):
+        self.ctx.run("whatever")
+        return await self.run_command(self.ctx.commit())
+
+    async def run_command(self, batch):
+        loop = asyncio.get_event_loop()
+        f = loop.create_future()
+        self.run_queue.put_nowait((f, batch))
+        return await f
 
     async def run(self):
-
         while True:
-            print(f"service {self.ctx.id} running on {self.ctx.provider_name} ... ")
-            signal = self._listen_nowait()
-            if signal and signal.message == "go":
-                self.ctx.run("go!")
-                yield self.ctx.commit()
-            else:
-                await asyncio.sleep(1)
-                yield
-
-    async def shutdown(self):
-        self.ctx.download_file("some/service/state", "temp/path")
-        yield self.ctx.commit()
+            f, batch = await self.run_queue.get()
+            fr = yield batch
+            f.set_result(await fr)
 
 
 async def main(subnet_tag, driver=None, network=None):
@@ -467,7 +456,7 @@ async def main(subnet_tag, driver=None, network=None):
         event_consumer=log_summary(log_event_repr),
     ) as golem:
         cluster = golem.run_service(
-            TurbogethService,
+            JanService,
             # payload=payload,
             num_instances=INSTANCES_NEEDED,
         )
@@ -484,8 +473,8 @@ async def main(subnet_tag, driver=None, network=None):
             await asyncio.sleep(3)
             cnt += 1
             if cnt == 3:
-                if len(cluster.instances) > 1:
-                    cluster.instances[0].send_message_nowait("go")
+                if len(cluster.instances) >= 1:
+                    print("RETURNED!!!", await cluster.instances[0].test())
 
         for s in cluster.instances:
             cluster.stop_instance(s)
