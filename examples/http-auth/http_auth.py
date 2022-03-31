@@ -124,8 +124,10 @@ async def main(
                 "$proto://$addr:$port/index.html -O-"
             )
             http_templ = string.Template(
-                "wget -d --http-user $username --http-password $password "
-                "$proto://$addr:$port/index.html -O-"
+                "$proto://$username:$password@$addr:$port"
+            )
+            http2_templ = string.Template(
+                "$proto://$username:$password@$addr:$port/subdir"
             )
 
             for username, password in users:
@@ -133,7 +135,7 @@ async def main(
                     f"{TEXT_COLOR_MAGENTA}" f"{username} {password}" f"{TEXT_COLOR_DEFAULT}",
                 )
 
-                if info["portHttp"]:
+                if "portHttp" in info and info["portHttp"]:
                     print(
                         http_templ.substitute(
                             username=username,
@@ -143,8 +145,17 @@ async def main(
                             port=info["portHttp"][0],
                         )
                     )
+                    print(
+                        http2_templ.substitute(
+                            username=username,
+                            password=password,
+                            addr=info["serverName"][0],
+                            proto="http",
+                            port=info["portHttp"][0],
+                        )
+                    )
 
-                if info["portHttps"]:
+                if "portHttps" in info and info["portHttps"]:
                     print(
                         https_templ.substitute(
                             username=username,
