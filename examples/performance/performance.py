@@ -2,6 +2,7 @@
 import asyncio
 
 from datetime import datetime, timedelta, timezone
+from enum import Enum
 import pathlib
 import sys
 
@@ -28,10 +29,15 @@ STARTING_TIMEOUT = timedelta(minutes=4)
 # as providers typically won't take offers that expire sooner than 5 minutes in the future
 EXPIRATION_MARGIN = timedelta(minutes=5)
 
-class PerformanceState:
-    def __init__(self):
-        self.nodes = {}
 
+computation_state = {}
+completion_state = {}
+
+
+class State(Enum):
+    IDLE = 0
+    COMPUTING = 1
+    FAILURE = 2
 
 
 class PerformanceService(Service):
@@ -58,30 +64,68 @@ class PerformanceService(Service):
         yield script
 
     async def run(self):
+        global computation_state
+        global completion_state
+
         client_ip = self.network_node.ip
+        computation_state[client_ip] = State.IDLE
+        completion_state[client_ip] = set()
 
-        for server_ip in network_addresses:
-            if server_ip == client_ip:
-                continue
+        while len(completion_state[client_ip]) < len(network_addresses) - 1:
 
-            # output_file = f"client_{client_ip}_to_server_{server_ip}_logs.json"
-            output_file = f"client_{client_ip}_to_server_TEST_logs.json"
+            for server_ip in network_addresses:
+                if server_ip == client_ip and server_ip not in completion_state[client_ip]:
+                    continue
+                if computation_state[server_ip] != State.IDLE:
+                    continue
 
-            script = self._ctx.new_script(timeout=timedelta(minutes=1))
-            # script.run("/bin/bash", "-c", f"iperf3 -c {server_ip} --logfile /golem/output/{output_file}")
-            # script.run("/bin/bash", "-c", "mkdir -p golem/output")
-            script.run("/bin/bash", "-c", f'iperf3 -c {iperf3_server} --logfile /golem/output/{output_file}')
-            yield script
-            # script.download_file(f"/golem/output/server_{server_ip}_logs.json", f"golem/output/server_{server_ip}_logs.json")
-            # script.download_file(f"/golem/output/{output_file}", f"golem/output/{output_file}")
+                computation_state[server_ip] = State.COMPUTING
 
-            script.download_file(f"/golem/output/server_{iperf3_server}.json", f"golem/output/server_{iperf3_server}_logs.json")
-            script.download_file(f"/golem/output/{output_file}", f"golem/output/{output_file}")
-            yield script
+                try:
+                    output_file = f"client_{client_ip}_to_server_TEST_logs.json"
+                    script = self._ctx.new_script(timeout=timedelta(minutes=1))
+                    script.run("/bin/bash", "-c", f"iperf3 -c {server_ip} -J --logfile /golem/output/{output_file}")
 
-            # Wait 10 seconds of the test duration plus two seconds extra
-            await asyncio.sleep(12)
-            print("here")
+                    yield script
+
+                    script.download_file(f"/golem/output/server_{server_ip}.json", f"golem/output/server_{server_ip}_logs.json")
+                    script.download_file(f"/golem/output/{output_file}", f"golem/output/{output_file}")
+
+                    yield script
+
+                    completion_state[client_ip].add(server_ip)
+
+                    print(f"{client_ip}: computed on {server_ip}")
+
+                finally:
+                    computation_state[server_ip] = State.IDLE
+
+            await asyncio.sleep(1)
+
+        # for server_ip in network_addresses:
+        #     if server_ip == client_ip:
+        #         continue
+        #
+        #     # output_file = f"client_{client_ip}_to_server_{server_ip}_logs.json"
+        #     output_file = f"client_{client_ip}_to_server_TEST_logs.json"
+        #
+        #     script = self._ctx.new_script(timeout=timedelta(minutes=1))
+        #     # script.run("/bin/bash", "-c", f"iperf3 -c {server_ip} --logfile /golem/output/{output_file}")
+        #     # script.run("/bin/bash", "-c", "mkdir -p golem/output")
+        #     script.run("/bin/bash", "-c", f'iperf3 -c {iperf3_server} --logfile /golem/output/{output_file}')
+        #     yield script
+        #     # script.download_file(f"/golem/output/server_{server_ip}_logs.json", f"golem/output/server_{server_ip}_logs.json")
+        #     # script.download_file(f"/golem/output/{output_file}", f"golem/output/{output_file}")
+        #
+        #     script.download_file(f"/golem/output/server_{iperf3_server}.json", f"golem/output/server_{iperf3_server}_logs.json")
+        #     script.download_file(f"/golem/output/{output_file}", f"golem/output/{output_file}")
+        #     yield script
+        #
+        #     # Wait 10 seconds of the test duration plus two seconds extra
+        #     await asyncio.sleep(12)
+        #     print("here")
+
+
 
     async def reset(self):
         # We don't have to do anything when the service is restarted
@@ -105,8 +149,8 @@ def generate_ip_addresses(num_instances) -> list[str]:
     return result
 
 
-global network_addresses
-global iperf3_server
+network_addresses = []
+iperf3_server = ""
 
 
 # ######## Main application code which spawns the Golem service and the local HTTP server
