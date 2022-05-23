@@ -71,7 +71,7 @@ class PerformanceService(Service):
 
         client_ip = self.network_node.ip
         neighbour_count = len(network_addresses) - 1
-        computation_state[client_ip] = (State.IDLE, None)
+        computation_state[client_ip] = State.IDLE
         completion_state[client_ip] = set()
 
         print(f"{client_ip}: running")
@@ -84,13 +84,11 @@ class PerformanceService(Service):
                     continue
                 elif server_ip not in computation_state:
                     continue
-
-                state, computing_ip = computation_state[server_ip]
-                if state != State.IDLE or computing_ip == client_ip:
+                elif computation_state[server_ip] != State.IDLE:
                     continue
 
-                computation_state[server_ip] = (State.COMPUTING, client_ip)
-                computation_state[client_ip] = (State.COMPUTING, server_ip)
+                computation_state[server_ip] = State.COMPUTING
+                computation_state[client_ip] = State.COMPUTING
                 print(f"{client_ip}: computing on {server_ip}")
 
                 try:
@@ -117,8 +115,8 @@ class PerformanceService(Service):
                     print(f"{client_ip}: finished on {server_ip}")
 
                 finally:
-                    computation_state[server_ip] = (State.IDLE, None)
-                    computation_state[client_ip] = (State.IDLE, None)
+                    computation_state[server_ip] = State.IDLE
+                    computation_state[client_ip] = State.IDLE
 
             await asyncio.sleep(1)
 
