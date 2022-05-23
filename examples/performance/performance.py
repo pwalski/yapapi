@@ -31,16 +31,13 @@ EXPIRATION_MARGIN = timedelta(minutes=5)
 
 computation_state = {}
 completion_state = {}
+network_addresses = []
 
 
 class State(Enum):
     IDLE = 0
     COMPUTING = 1
     FAILURE = 2
-
-
-def server_log_file_name(ip: str) -> str:
-    return f"server_{ip}_logs.json"
 
 
 class PerformanceService(Service):
@@ -58,16 +55,20 @@ class PerformanceService(Service):
         async for script in super().start():
             yield script
 
-        server_ip = self.network_node.ip
-        output_file = server_log_file_name(server_ip)
-
         script = self._ctx.new_script(timeout=timedelta(minutes=1))
-        script.run("/bin/bash", "-c", f"iperf3 -s -D --json --logfile /golem/output/{output_file}")
+        script.run("/bin/bash", "-c", f"iperf3 -s -D")
         yield script
+
+        network_addresses.append(self.network_node.ip)
+        print(f"currently in VPN: {network_addresses}")
 
     async def run(self):
         global computation_state
         global completion_state
+
+        while len(network_addresses) < len(self.cluster.instances):
+            print("still waiting for entire cluster running")
+            await asyncio.sleep(1)
 
         client_ip = self.network_node.ip
         neighbour_count = len(network_addresses) - 1
@@ -92,23 +93,21 @@ class PerformanceService(Service):
                 print(f"{client_ip}: computing on {server_ip}")
 
                 try:
-
-                    # log_file = server_log_file_name(server_ip)
-                    output_file = f"client_{client_ip}_to_server_TEST_logs.json"
+                    output_file = f"client_{client_ip}_to_server_{server_ip}_logs.txt"
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=10))
                     script.run(
                         "/bin/bash",
                         "-c",
-                        f"iperf3 -c {server_ip} --json --logfile /golem/output/{output_file}",
+                        f"iperf3 -c {server_ip} --logfile /golem/output/{output_file}",
                     )
                     yield script
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
+                    dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
                     script.download_file(
-                        f"/golem/output/{output_file}", f"golem/output/{output_file}"
+                        f"/golem/output/{output_file}", f"golem/output/{dt}_{output_file}"
                     )
-                    # script.download_file(f"/golem/output/{log_file}", f"golem/output/{log_file}")
                     yield script
 
                     completion_state[client_ip].add(server_ip)
@@ -133,26 +132,7 @@ class PerformanceService(Service):
         pass
 
 
-def generate_ip_addresses(num_instances) -> list[str]:
-    base = "192.168.0."
-    result = []
-
-    if num_instances > 255:
-        raise Exception(f"Cannot test more than 255 nodes in parallel")
-
-    for i in range(1, num_instances + 1):
-        host_id = str(i + 1)
-        ip_address = base + host_id
-        result.append(ip_address)
-
-    return result
-
-
-network_addresses = []
-iperf3_server = ""
-
-
-# ######## Main application code which spawns the Golem service and the local HTTP server
+# Main application code which spawns the Golem service and the local HTTP server
 async def main(
     subnet_tag, payment_driver, payment_network, num_instances, running_time, instances=None
 ):
@@ -160,16 +140,11 @@ async def main(
         budget=1.0,
         subnet_tag=subnet_tag,
         payment_driver=payment_driver,
-        payment_network=payment_network,
     ) as golem:
         print_env_info(golem)
 
         commissioning_time = datetime.now()
         global network_addresses
-        global iperf3_server
-
-        network_addresses = generate_ip_addresses(num_instances)
-        iperf3_server = "lon.speedtest.clouvider.net"
 
         network = await golem.create_network("192.168.0.1/24")
         cluster = await golem.run_service(
@@ -180,7 +155,6 @@ async def main(
             + STARTING_TIMEOUT
             + EXPIRATION_MARGIN
             + timedelta(seconds=running_time),
-            network_addresses=network_addresses,
         )
 
         instances = cluster.instances
@@ -219,12 +193,6 @@ if __name__ == "__main__":
         default=2,
         help="The number of nodes to be tested",
     )
-    # parser.add_argument(
-    #     "--port",
-    #     type=int,
-    #     default=8080,
-    #     help="The local port to listen on",
-    # )
     parser.add_argument(
         "--running-time",
         default=600,
