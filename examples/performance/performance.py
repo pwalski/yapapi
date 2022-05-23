@@ -33,6 +33,8 @@ computation_state = {}
 completion_state = {}
 network_addresses = []
 
+lock = asyncio.Lock()
+
 
 class State(Enum):
     IDLE = 0
@@ -45,7 +47,7 @@ class PerformanceService(Service):
     async def get_payload():
         return await vm.repo(
             image_hash="787b3430ee1e431fafa9925b4661414173e892d219db8b53c491636f",
-            min_mem_gib=0.2,
+            min_mem_gib=1.0,
             min_storage_gib=0.5,
         )
 
@@ -79,23 +81,28 @@ class PerformanceService(Service):
 
         while len(completion_state[client_ip]) < neighbour_count:
             for server_ip in network_addresses:
-                if server_ip == client_ip:
-                    continue
-                elif server_ip in completion_state[client_ip]:
-                    continue
-                elif server_ip not in computation_state:
-                    continue
-                elif computation_state[server_ip] != State.IDLE:
-                    continue
 
-                computation_state[server_ip] = State.COMPUTING
-                computation_state[client_ip] = State.COMPUTING
+                async with lock:
+                    if server_ip == client_ip:
+                        continue
+                    elif server_ip in completion_state[client_ip]:
+                        continue
+                    elif server_ip not in computation_state:
+                        continue
+                    elif computation_state[server_ip] != State.IDLE:
+                        continue
+
+                    computation_state[server_ip] = State.COMPUTING
+                    computation_state[client_ip] = State.COMPUTING
+
+                await asyncio.sleep(1)
+
                 print(f"{client_ip}: computing on {server_ip}")
 
                 try:
                     output_file = f"client_{client_ip}_to_server_{server_ip}_logs.txt"
 
-                    script = self._ctx.new_script(timeout=timedelta(minutes=10))
+                    script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     script.run(
                         "/bin/bash",
                         "-c",
@@ -114,8 +121,9 @@ class PerformanceService(Service):
                     print(f"{client_ip}: finished on {server_ip}")
 
                 finally:
-                    computation_state[server_ip] = State.IDLE
-                    computation_state[client_ip] = State.IDLE
+                    async with lock:
+                        computation_state[server_ip] = State.IDLE
+                        computation_state[client_ip] = State.IDLE
 
             await asyncio.sleep(1)
 
@@ -126,6 +134,8 @@ class PerformanceService(Service):
             [len(c) == neighbour_count for c in completion_state.values()]
         ):
             await asyncio.sleep(1)
+
+        print(f"{client_ip}: exiting")
 
     async def reset(self):
         # We don't have to do anything when the service is restarted
