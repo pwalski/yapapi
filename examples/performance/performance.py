@@ -29,7 +29,8 @@ STARTING_TIMEOUT = timedelta(minutes=4)
 # as providers typically won't take offers that expire sooner than 5 minutes in the future
 EXPIRATION_MARGIN = timedelta(minutes=5)
 
-computation_state = {}
+computation_state_server = {}
+computation_state_client = {}
 completion_state = {}
 network_addresses = []
 
@@ -61,11 +62,15 @@ class PerformanceService(Service):
         script.run("/bin/bash", "-c", f"iperf3 -s -D")
         yield script
 
-        network_addresses.append(self.network_node.ip)
+        server_ip = self.network_node.ip
+        computation_state_server[server_ip] = State.IDLE
+
+        network_addresses.append(server_ip)
         print(f"currently in VPN: {network_addresses}")
 
     async def run(self):
-        global computation_state
+        global computation_state_client
+        global computation_state_server
         global completion_state
 
         while len(network_addresses) < len(self.cluster.instances):
@@ -74,26 +79,25 @@ class PerformanceService(Service):
 
         client_ip = self.network_node.ip
         neighbour_count = len(network_addresses) - 1
-        computation_state[client_ip] = State.IDLE
+        computation_state_client[client_ip] = State.IDLE
         completion_state[client_ip] = set()
 
         print(f"{client_ip}: running")
 
         while len(completion_state[client_ip]) < neighbour_count:
             for server_ip in network_addresses:
-
                 async with lock:
                     if server_ip == client_ip:
                         continue
                     elif server_ip in completion_state[client_ip]:
                         continue
-                    elif server_ip not in computation_state:
+                    elif server_ip not in computation_state_server:
                         continue
-                    elif computation_state[server_ip] != State.IDLE:
+                    elif computation_state_server[server_ip] != State.IDLE:
                         continue
 
-                    computation_state[server_ip] = State.COMPUTING
-                    computation_state[client_ip] = State.COMPUTING
+                    computation_state_server[server_ip] = State.COMPUTING
+                    computation_state_client[client_ip] = State.COMPUTING
 
                 await asyncio.sleep(1)
 
@@ -103,6 +107,7 @@ class PerformanceService(Service):
                     output_file = f"client_{client_ip}_to_server_{server_ip}_logs.txt"
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
+
                     script.run(
                         "/bin/bash",
                         "-c",
@@ -113,7 +118,7 @@ class PerformanceService(Service):
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
                     script.download_file(
-                        f"/golem/output/{output_file}", f"golem/output/{dt}_{output_file}"
+                    f"/golem/output/{output_file}", f"golem/output/{dt}_{output_file}"
                     )
                     yield script
 
@@ -122,8 +127,8 @@ class PerformanceService(Service):
 
                 finally:
                     async with lock:
-                        computation_state[server_ip] = State.IDLE
-                        computation_state[client_ip] = State.IDLE
+                        computation_state_server[server_ip] = State.IDLE
+                        computation_state_client[client_ip] = State.IDLE
 
             await asyncio.sleep(1)
 
