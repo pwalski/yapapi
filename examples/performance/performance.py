@@ -23,18 +23,19 @@ from utils import (
 
 # the timeout after we commission our service instances
 # before we abort this script
-STARTING_TIMEOUT = timedelta(minutes=4)
+STARTING_TIMEOUT = timedelta(minutes=5)
 
 # additional expiration margin to allow providers to take our offer,
 # as providers typically won't take offers that expire sooner than 5 minutes in the future
 EXPIRATION_MARGIN = timedelta(minutes=5)
 
+lock = asyncio.Lock()
+
 computation_state_server = {}
 computation_state_client = {}
 completion_state = {}
+ip_provider_id = {}
 network_addresses = []
-
-lock = asyncio.Lock()
 
 
 class State(Enum):
@@ -63,10 +64,13 @@ class PerformanceService(Service):
         yield script
 
         server_ip = self.network_node.ip
+        ip_provider_id[server_ip] = self.provider_id
         computation_state_server[server_ip] = State.IDLE
+        computation_state_client[server_ip] = State.IDLE
 
         network_addresses.append(server_ip)
-        print(f"currently in VPN: {network_addresses}")
+        print(f"Currently in VPN: {ip_provider_id}")
+        print(f"Node: {ip_provider_id.get(server_ip)} has IP address: {server_ip}")
 
     async def run(self):
         global computation_state_client
@@ -74,61 +78,108 @@ class PerformanceService(Service):
         global completion_state
 
         while len(network_addresses) < len(self.cluster.instances):
-            print("still waiting for entire cluster running")
             await asyncio.sleep(1)
 
         client_ip = self.network_node.ip
+        # computation_state_client[client_ip] = State.IDLE
         neighbour_count = len(network_addresses) - 1
-        computation_state_client[client_ip] = State.IDLE
         completion_state[client_ip] = set()
+        transfer_test_done = False
 
         print(f"{client_ip}: running")
+        await asyncio.sleep(5)
 
         while len(completion_state[client_ip]) < neighbour_count:
-            for server_ip in network_addresses:
-                async with lock:
-                    if server_ip == client_ip:
-                        continue
-                    elif server_ip in completion_state[client_ip]:
-                        continue
-                    elif server_ip not in computation_state_server:
-                        continue
-                    elif computation_state_server[server_ip] != State.IDLE:
-                        continue
 
-                    computation_state_server[server_ip] = State.COMPUTING
-                    computation_state_client[client_ip] = State.COMPUTING
+            for server_ip in network_addresses:
+                if server_ip == client_ip:
+                    continue
+                elif server_ip in completion_state[client_ip]:
+                    continue
+                elif server_ip not in computation_state_server:
+                    continue
+                await lock.acquire()
+                if computation_state_server[server_ip] != State.IDLE or computation_state_client[server_ip] != State.IDLE or computation_state_server[client_ip] != State.IDLE:
+                    lock.release()
+                    await asyncio.sleep(1)
+                    continue
+
+                # print(f"computation state server {server_ip}:{computation_state_server[server_ip]}")
+                # print(f"computation state server beeing client {client_ip}:{computation_state_server[client_ip]}")
+                computation_state_server[server_ip] = State.COMPUTING
+                computation_state_client[client_ip] = State.COMPUTING
+                # await asyncio.sleep(5)
+                lock.release()
 
                 await asyncio.sleep(1)
 
                 print(f"{client_ip}: computing on {server_ip}")
 
                 try:
-                    output_file = f"client_{client_ip}_to_server_{server_ip}_logs.txt"
+                    output_file_vpn_transfer = f"vpn_transfer_client_{client_ip}_to_server_{server_ip}_logs.txt"
+                    output_file_vpn_ping = f"vpn_ping_node_{client_ip}_to_node_{server_ip}_logs.txt"
+
+                    # if not transfer_test_done:
+                    #     transfer = f"transfer_requestor_to_{client_ip}.txt"
+                    #     value = bytes(10000000)
+                    #     path = "/golem/output/dummy"
+                    #
+                    #     script = self._ctx.new_script(timeout=timedelta(minutes=3))
+                    #     script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME > /golem/output/{transfer}")
+                    #     script.upload_bytes(value, path)
+                    #     script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME >> /golem/output/{transfer}")
+                    #     yield script
+                    #
+                    #     script = self._ctx.new_script(timeout=timedelta(minutes=3))
+                    #     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+                    #     script.download_file(
+                    #         f"/golem/output/{transfer}", f"golem/output/{dt}_{transfer}"
+                    #     )
+                    #     yield script
+                    #
+                    #     transfer_test_done = True
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
-
                     script.run(
                         "/bin/bash",
                         "-c",
-                        f"iperf3 -c {server_ip} --logfile /golem/output/{output_file}",
+                        f"ping -c 10 {server_ip} > /golem/output/{output_file_vpn_ping}",
                     )
                     yield script
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
                     script.download_file(
-                    f"/golem/output/{output_file}", f"golem/output/{dt}_{output_file}"
+                        f"/golem/output/{output_file_vpn_ping}", f"golem/output/{dt}_{output_file_vpn_ping}"
+                    )
+                    yield script
+
+                    script = self._ctx.new_script(timeout=timedelta(minutes=3))
+
+                    script.run(
+                        "/bin/bash",
+                        "-c",
+                        f"iperf3 -c {server_ip} --logfile /golem/output/{output_file_vpn_transfer}",
+                    )
+                    yield script
+
+                    script = self._ctx.new_script(timeout=timedelta(minutes=3))
+                    dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+                    script.download_file(
+                        f"/golem/output/{output_file_vpn_transfer}", f"golem/output/{dt}_{output_file_vpn_transfer}"
                     )
                     yield script
 
                     completion_state[client_ip].add(server_ip)
                     print(f"{client_ip}: finished on {server_ip}")
 
-                finally:
-                    async with lock:
-                        computation_state_server[server_ip] = State.IDLE
-                        computation_state_client[client_ip] = State.IDLE
+                except Exception as e:
+                    print("sth went wrong")
+
+                await lock.acquire()
+                computation_state_server[server_ip] = State.IDLE
+                computation_state_client[client_ip] = State.IDLE
+                lock.release()
 
             await asyncio.sleep(1)
 
@@ -136,7 +187,7 @@ class PerformanceService(Service):
 
         # keep running - nodes may want to compute on this node
         while len(completion_state) < neighbour_count or not all(
-            [len(c) == neighbour_count for c in completion_state.values()]
+                [len(c) == neighbour_count for c in completion_state.values()]
         ):
             await asyncio.sleep(1)
 
@@ -149,12 +200,12 @@ class PerformanceService(Service):
 
 # Main application code which spawns the Golem service and the local HTTP server
 async def main(
-    subnet_tag, payment_driver, payment_network, num_instances, running_time, instances=None
+        subnet_tag, payment_driver, payment_network, num_instances, running_time, instances=None
 ):
     async with Golem(
-        budget=1.0,
-        subnet_tag=subnet_tag,
-        payment_driver=payment_driver,
+            budget=1.0,
+            subnet_tag=subnet_tag,
+            payment_driver=payment_driver,
     ) as golem:
         print_env_info(golem)
 
@@ -180,7 +231,7 @@ async def main(
         # wait until all remote http instances are started
 
         while still_starting() and datetime.now() < commissioning_time + STARTING_TIMEOUT:
-            print(f"instances: {instances}")
+            print(f"Cluster is starting. Instances: {instances}")
             await asyncio.sleep(5)
 
         if still_starting():
@@ -190,8 +241,9 @@ async def main(
 
         start_time = datetime.now()
 
-        while datetime.now() < start_time + timedelta(seconds=running_time):
-            print(instances)
+        while datetime.now() < start_time + timedelta(seconds=running_time) and len(completion_state) < num_instances - 1 or not all(
+                [len(c) == num_instances - 1 for c in completion_state.values()]
+        ):
             try:
                 await asyncio.sleep(10)
             except (KeyboardInterrupt, asyncio.CancelledError):
@@ -210,7 +262,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--running-time",
-        default=600,
+        default=1200,
         type=int,
         help=(
             "How long should the instance run before the cluster is stopped "
