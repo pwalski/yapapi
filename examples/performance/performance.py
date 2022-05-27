@@ -68,6 +68,26 @@ class PerformanceService(Service):
         computation_state_server[server_ip] = State.IDLE
         computation_state_client[server_ip] = State.IDLE
 
+        await lock.acquire()
+        print(f"Test transfer started for {server_ip}")
+        transfer = f"transfer_requestor_to_{server_ip}.txt"
+        value = bytes(10000000)
+        path = "/golem/output/dummy"
+
+        script = self._ctx.new_script(timeout=timedelta(minutes=3))
+        script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME > /golem/output/{transfer}")
+        script.upload_bytes(value, path)
+        script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME >> /golem/output/{transfer}")
+        yield script
+
+        script = self._ctx.new_script(timeout=timedelta(minutes=3))
+        dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+        script.download_file(
+            f"/golem/output/{transfer}", f"golem/output/{dt}_{transfer}"
+        )
+        yield script
+        lock.release()
+
         network_addresses.append(server_ip)
         print(f"Currently in VPN: {ip_provider_id}")
         print(f"Node: {ip_provider_id.get(server_ip)} has IP address: {server_ip}")
@@ -81,10 +101,8 @@ class PerformanceService(Service):
             await asyncio.sleep(1)
 
         client_ip = self.network_node.ip
-        # computation_state_client[client_ip] = State.IDLE
         neighbour_count = len(network_addresses) - 1
         completion_state[client_ip] = set()
-        transfer_test_done = False
 
         print(f"{client_ip}: running")
         await asyncio.sleep(5)
@@ -104,11 +122,8 @@ class PerformanceService(Service):
                     await asyncio.sleep(1)
                     continue
 
-                # print(f"computation state server {server_ip}:{computation_state_server[server_ip]}")
-                # print(f"computation state server beeing client {client_ip}:{computation_state_server[client_ip]}")
                 computation_state_server[server_ip] = State.COMPUTING
                 computation_state_client[client_ip] = State.COMPUTING
-                # await asyncio.sleep(5)
                 lock.release()
 
                 await asyncio.sleep(1)
@@ -118,26 +133,6 @@ class PerformanceService(Service):
                 try:
                     output_file_vpn_transfer = f"vpn_transfer_client_{client_ip}_to_server_{server_ip}_logs.txt"
                     output_file_vpn_ping = f"vpn_ping_node_{client_ip}_to_node_{server_ip}_logs.txt"
-
-                    # if not transfer_test_done:
-                    #     transfer = f"transfer_requestor_to_{client_ip}.txt"
-                    #     value = bytes(10000000)
-                    #     path = "/golem/output/dummy"
-                    #
-                    #     script = self._ctx.new_script(timeout=timedelta(minutes=3))
-                    #     script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME > /golem/output/{transfer}")
-                    #     script.upload_bytes(value, path)
-                    #     script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME >> /golem/output/{transfer}")
-                    #     yield script
-                    #
-                    #     script = self._ctx.new_script(timeout=timedelta(minutes=3))
-                    #     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-                    #     script.download_file(
-                    #         f"/golem/output/{transfer}", f"golem/output/{dt}_{transfer}"
-                    #     )
-                    #     yield script
-                    #
-                    #     transfer_test_done = True
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     script.run(
@@ -173,8 +168,8 @@ class PerformanceService(Service):
                     completion_state[client_ip].add(server_ip)
                     print(f"{client_ip}: finished on {server_ip}")
 
-                except Exception as e:
-                    print("sth went wrong")
+                except Exception as error:
+                    print(f"Error: {error}")
 
                 await lock.acquire()
                 computation_state_server[server_ip] = State.IDLE
