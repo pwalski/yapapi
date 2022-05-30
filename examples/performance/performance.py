@@ -6,6 +6,7 @@ from enum import Enum
 import pathlib
 import sys
 
+from yapapi.script import Script
 from yapapi.golem import Golem
 from yapapi.payload import vm
 from yapapi.services import Service, ServiceState
@@ -44,6 +45,29 @@ class State(Enum):
     FAILURE = 2
 
 
+class PerformanceScript(Script):
+    async def _before(self):
+        self.before = datetime.now()
+        await super()._before()
+
+    async def _after(self):
+        self.after = datetime.now()
+        await super()._after()
+
+    def __init__(self, script: Script):
+        self.before = None
+        self.after = None
+        self.timeout = script.timeout
+        self.wait_for_results = script.wait_for_results
+        self._ctx = script._ctx
+        self._commands = script._commands
+        self._id: int = script._id
+
+    def calculate_transfer(self, bts):
+        dt = self.after - self.before
+        return bts / (dt.seconds * 1000 * 1000)
+
+
 class PerformanceService(Service):
     @staticmethod
     async def get_payload():
@@ -69,28 +93,22 @@ class PerformanceService(Service):
         computation_state_client[server_ip] = State.IDLE
 
         await lock.acquire()
-        print(f"Test transfer started for {server_ip}")
-        transfer = f"transfer_requestor_to_{server_ip}.txt"
         value = bytes(10000000)
         path = "/golem/output/dummy"
+        print(f"Started test transfer between requestor and node: {self.provider_id}")
 
         script = self._ctx.new_script(timeout=timedelta(minutes=3))
-        script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME > /golem/output/{transfer}")
         script.upload_bytes(value, path)
-        script.run("/bin/bash", "-c", f"echo $EPOCHREALTIME >> /golem/output/{transfer}")
+        script = PerformanceScript(script)
         yield script
+        speed = script.calculate_transfer(10000000)
 
-        script = self._ctx.new_script(timeout=timedelta(minutes=3))
-        dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-        script.download_file(
-            f"/golem/output/{transfer}", f"golem/output/{dt}_{transfer}"
-        )
-        yield script
+        print(f"Transfer speed: {speed} MB/s")
+
         lock.release()
+        print(f"Completed test transfer between requestor and node: {self.provider_id}")
 
         network_addresses.append(server_ip)
-        print(f"Currently in VPN: {ip_provider_id}")
-        print(f"Node: {ip_provider_id.get(server_ip)} has IP address: {server_ip}")
 
     async def run(self):
         global computation_state_client
@@ -104,7 +122,7 @@ class PerformanceService(Service):
         neighbour_count = len(network_addresses) - 1
         completion_state[client_ip] = set()
 
-        print(f"{client_ip}: running")
+        print(f"{self.provider_id}: running")
         await asyncio.sleep(5)
 
         while len(completion_state[client_ip]) < neighbour_count:
@@ -128,7 +146,7 @@ class PerformanceService(Service):
 
                 await asyncio.sleep(1)
 
-                print(f"{client_ip}: computing on {server_ip}")
+                print(f"{self.provider_id}: computing on {ip_provider_id[server_ip]}")
 
                 try:
                     output_file_vpn_transfer = f"vpn_transfer_client_{client_ip}_to_server_{server_ip}_logs.txt"
@@ -166,7 +184,7 @@ class PerformanceService(Service):
                     yield script
 
                     completion_state[client_ip].add(server_ip)
-                    print(f"{client_ip}: finished on {server_ip}")
+                    print(f"{self.provider_id}: finished on {ip_provider_id[server_ip]}")
 
                 except Exception as error:
                     print(f"Error: {error}")
@@ -178,7 +196,7 @@ class PerformanceService(Service):
 
             await asyncio.sleep(1)
 
-        print(f"{client_ip}: finished computing")
+        print(f"{self.provider_id}: finished computing")
 
         # keep running - nodes may want to compute on this node
         while len(completion_state) < neighbour_count or not all(
@@ -186,7 +204,7 @@ class PerformanceService(Service):
         ):
             await asyncio.sleep(1)
 
-        print(f"{client_ip}: exiting")
+        print(f"{self.provider_id}: exiting")
 
     async def reset(self):
         # We don't have to do anything when the service is restarted
@@ -220,19 +238,19 @@ async def main(
 
         instances = cluster.instances
 
-        def still_starting():
-            return any(i.state in (ServiceState.pending, ServiceState.starting) for i in instances)
-
-        # wait until all remote http instances are started
-
-        while still_starting() and datetime.now() < commissioning_time + STARTING_TIMEOUT:
-            print(f"Cluster is starting. Instances: {instances}")
-            await asyncio.sleep(5)
-
-        if still_starting():
-            raise Exception(
-                f"Failed to start instances after {STARTING_TIMEOUT.total_seconds()} seconds"
-            )
+        # def still_starting():
+        #     return any(i.state in (ServiceState.pending, ServiceState.starting) for i in instances)
+        #
+        # # wait until all remote http instances are started
+        #
+        # while still_starting() and datetime.now() < commissioning_time + STARTING_TIMEOUT:
+        #     print(f"Cluster is starting. Instances: {instances}")
+        #     await asyncio.sleep(5)
+        #
+        # if still_starting():
+        #     raise Exception(
+        #         f"Failed to start instances after {STARTING_TIMEOUT.total_seconds()} seconds"
+        #     )
 
         start_time = datetime.now()
 
