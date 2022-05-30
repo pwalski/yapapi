@@ -5,11 +5,13 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 import pathlib
 import sys
+from tabulate import tabulate
 
 from yapapi.script import Script
 from yapapi.golem import Golem
 from yapapi.payload import vm
 from yapapi.services import Service, ServiceState
+from yapapi.utils import logger
 
 examples_dir = pathlib.Path(__file__).resolve().parent.parent
 sys.path.append(str(examples_dir))
@@ -37,6 +39,7 @@ computation_state_client = {}
 completion_state = {}
 ip_provider_id = {}
 network_addresses = []
+transfer_table = []
 
 
 class State(Enum):
@@ -65,10 +68,14 @@ class PerformanceScript(Script):
 
     def calculate_transfer(self, bts):
         dt = self.after - self.before
-        return bts / (dt.seconds * 1000 * 1000)
+        return (bts / dt.seconds).__round__(3)
 
 
 class PerformanceService(Service):
+    def __init__(self, transfer_mb: int):
+        super().__init__()
+        self.transfer_mb = transfer_mb
+
     @staticmethod
     async def get_payload():
         return await vm.repo(
@@ -80,33 +87,43 @@ class PerformanceService(Service):
     async def start(self):
         # perform the initialization of the Service
         # (which includes sending the network details within the `deploy` command)
+
         async for script in super().start():
             yield script
-
         script = self._ctx.new_script(timeout=timedelta(minutes=1))
         script.run("/bin/bash", "-c", f"iperf3 -s -D")
-        yield script
 
+        yield script
         server_ip = self.network_node.ip
         ip_provider_id[server_ip] = self.provider_id
         computation_state_server[server_ip] = State.IDLE
         computation_state_client[server_ip] = State.IDLE
 
-        await lock.acquire()
-        value = bytes(10000000)
-        path = "/golem/output/dummy"
-        print(f"Started test transfer between requestor and node: {self.provider_id}")
+        async def dummy(v):
+            pass
 
+        await lock.acquire()
+        value = bytes(self.transfer_mb * 1024 * 1024)
+        path = "/golem/output/dummy"
+        logger.info(f"🚀 Provider: {self.provider_id}. Starting transfer test. ")
         script = self._ctx.new_script(timeout=timedelta(minutes=3))
         script.upload_bytes(value, path)
         script = PerformanceScript(script)
         yield script
-        speed = script.calculate_transfer(10000000)
+        upload = script.calculate_transfer(self.transfer_mb)
 
-        print(f"Transfer speed: {speed} MB/s")
+        script = self._ctx.new_script(timeout=timedelta(minutes=3))
+        script.download_bytes(path, on_download=dummy)
+        script = PerformanceScript(script)
+        yield script
+
+        download = script.calculate_transfer(self.transfer_mb)
+        logger.info(
+            f"🎉 Provider: {self.provider_id}. Completed transfer test: ⬆ upload {upload} MB/s, ⬇ download {download} MB/s"
+        )
+        transfer_table.append([self.provider_id, upload, download])
 
         lock.release()
-        print(f"Completed test transfer between requestor and node: {self.provider_id}")
 
         network_addresses.append(server_ip)
 
@@ -122,7 +139,7 @@ class PerformanceService(Service):
         neighbour_count = len(network_addresses) - 1
         completion_state[client_ip] = set()
 
-        print(f"{self.provider_id}: running")
+        logger.info(f"{self.provider_id}: running")
         await asyncio.sleep(5)
 
         while len(completion_state[client_ip]) < neighbour_count:
@@ -135,7 +152,11 @@ class PerformanceService(Service):
                 elif server_ip not in computation_state_server:
                     continue
                 await lock.acquire()
-                if computation_state_server[server_ip] != State.IDLE or computation_state_client[server_ip] != State.IDLE or computation_state_server[client_ip] != State.IDLE:
+                if (
+                    computation_state_server[server_ip] != State.IDLE
+                    or computation_state_client[server_ip] != State.IDLE
+                    or computation_state_server[client_ip] != State.IDLE
+                ):
                     lock.release()
                     await asyncio.sleep(1)
                     continue
@@ -146,10 +167,12 @@ class PerformanceService(Service):
 
                 await asyncio.sleep(1)
 
-                print(f"{self.provider_id}: computing on {ip_provider_id[server_ip]}")
+                logger.info(f"{self.provider_id}: computing on {ip_provider_id[server_ip]}")
 
                 try:
-                    output_file_vpn_transfer = f"vpn_transfer_client_{client_ip}_to_server_{server_ip}_logs.txt"
+                    output_file_vpn_transfer = (
+                        f"vpn_transfer_client_{client_ip}_to_server_{server_ip}_logs.txt"
+                    )
                     output_file_vpn_ping = f"vpn_ping_node_{client_ip}_to_node_{server_ip}_logs.txt"
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
@@ -163,7 +186,8 @@ class PerformanceService(Service):
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
                     script.download_file(
-                        f"/golem/output/{output_file_vpn_ping}", f"golem/output/{dt}_{output_file_vpn_ping}"
+                        f"/golem/output/{output_file_vpn_ping}",
+                        f"golem/output/{dt}_{output_file_vpn_ping}",
                     )
                     yield script
 
@@ -179,15 +203,16 @@ class PerformanceService(Service):
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
                     script.download_file(
-                        f"/golem/output/{output_file_vpn_transfer}", f"golem/output/{dt}_{output_file_vpn_transfer}"
+                        f"/golem/output/{output_file_vpn_transfer}",
+                        f"golem/output/{dt}_{output_file_vpn_transfer}",
                     )
                     yield script
 
                     completion_state[client_ip].add(server_ip)
-                    print(f"{self.provider_id}: finished on {ip_provider_id[server_ip]}")
+                    logger.info(f"✅ {self.provider_id}: finished on {ip_provider_id[server_ip]}")
 
                 except Exception as error:
-                    print(f"Error: {error}")
+                    logger.info(f"💀 error: {error}")
 
                 await lock.acquire()
                 computation_state_server[server_ip] = State.IDLE
@@ -196,15 +221,15 @@ class PerformanceService(Service):
 
             await asyncio.sleep(1)
 
-        print(f"{self.provider_id}: finished computing")
+        logger.info(f"{self.provider_id}: finished computing")
 
         # keep running - nodes may want to compute on this node
         while len(completion_state) < neighbour_count or not all(
-                [len(c) == neighbour_count for c in completion_state.values()]
+            [len(c) == neighbour_count for c in completion_state.values()]
         ):
             await asyncio.sleep(1)
 
-        print(f"{self.provider_id}: exiting")
+        logger.info(f"🚪 {self.provider_id}: exiting")
 
     async def reset(self):
         # We don't have to do anything when the service is restarted
@@ -213,12 +238,18 @@ class PerformanceService(Service):
 
 # Main application code which spawns the Golem service and the local HTTP server
 async def main(
-        subnet_tag, payment_driver, payment_network, num_instances, running_time, instances=None
+    subnet_tag,
+    payment_driver,
+    payment_network,
+    num_instances,
+    running_time,
+    transfer_mb,
+    instances=None,
 ):
     async with Golem(
-            budget=1.0,
-            subnet_tag=subnet_tag,
-            payment_driver=payment_driver,
+        budget=1.0,
+        subnet_tag=subnet_tag,
+        payment_driver=payment_driver,
     ) as golem:
         print_env_info(golem)
 
@@ -228,6 +259,7 @@ async def main(
         network = await golem.create_network("192.168.0.1/24")
         cluster = await golem.run_service(
             PerformanceService,
+            instance_params=[{"transfer_mb": transfer_mb} for i in range(num_instances)],
             network=network,
             num_instances=num_instances,
             expiration=datetime.now(timezone.utc)
@@ -244,7 +276,7 @@ async def main(
         # # wait until all remote http instances are started
         #
         # while still_starting() and datetime.now() < commissioning_time + STARTING_TIMEOUT:
-        #     print(f"Cluster is starting. Instances: {instances}")
+        #     logger.info(f"Cluster is starting. Instances: {instances}")
         #     await asyncio.sleep(5)
         #
         # if still_starting():
@@ -254,8 +286,10 @@ async def main(
 
         start_time = datetime.now()
 
-        while datetime.now() < start_time + timedelta(seconds=running_time) and len(completion_state) < num_instances - 1 or not all(
-                [len(c) == num_instances - 1 for c in completion_state.values()]
+        while (
+            datetime.now() < start_time + timedelta(seconds=running_time)
+            and len(completion_state) < num_instances - 1
+            or not all([len(c) == num_instances - 1 for c in completion_state.values()])
         ):
             try:
                 await asyncio.sleep(10)
@@ -263,6 +297,12 @@ async def main(
                 break
 
         cluster.stop()
+        print(f"Transfer test with file size {transfer_mb} MB")
+        print(
+            tabulate(
+                transfer_table, ["provider id", "download MB/s", "upload MB/s"], tablefmt="grid"
+            )
+        )
 
 
 if __name__ == "__main__":
@@ -282,6 +322,14 @@ if __name__ == "__main__":
             "(in seconds, default: %(default)s)"
         ),
     )
+    parser.add_argument(
+        "--transfer-mb",
+        default=10,
+        type=int,
+        help=(
+            "How many MB of data are transferred during transfer test between requestor and providers (in Mega Bytes, default: %(default)MB)"
+        ),
+    )
     now = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     parser.set_defaults(log_file=f"net-measurements-tool-{now}.log")
     args = parser.parse_args()
@@ -293,6 +341,7 @@ if __name__ == "__main__":
             payment_network=args.payment_network,
             num_instances=args.num_instances,
             running_time=args.running_time,
+            transfer_mb=args.transfer_mb,
         ),
         log_file=args.log_file,
     )
