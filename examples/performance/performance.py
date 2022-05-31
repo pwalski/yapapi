@@ -72,14 +72,15 @@ class PerformanceScript(Script):
 
 
 class PerformanceService(Service):
-    def __init__(self, transfer_mb: int):
+    def __init__(self, transfer_mb: int, transfer_test: bool):
         super().__init__()
         self.transfer_mb = transfer_mb
+        self.transfer_test = transfer_test
 
     @staticmethod
     async def get_payload():
         return await vm.repo(
-            image_hash="787b3430ee1e431fafa9925b4661414173e892d219db8b53c491636f",
+            image_hash="6aa7ef45d0f4c91e147a01c2f311c63bfeb742ea6743ae8e407cd202",
             min_mem_gib=1.0,
             min_storage_gib=0.5,
         )
@@ -99,31 +100,33 @@ class PerformanceService(Service):
         computation_state_server[server_ip] = State.IDLE
         computation_state_client[server_ip] = State.IDLE
 
-        async def dummy(v):
-            pass
+        if self.transfer_test:
 
-        await lock.acquire()
-        value = bytes(self.transfer_mb * 1024 * 1024)
-        path = "/golem/output/dummy"
-        logger.info(f"🚀 Provider: {self.provider_id}. Starting transfer test. ")
-        script = self._ctx.new_script(timeout=timedelta(minutes=3))
-        script.upload_bytes(value, path)
-        script = PerformanceScript(script)
-        yield script
-        upload = script.calculate_transfer(self.transfer_mb)
+            async def dummy(v):
+                pass
 
-        script = self._ctx.new_script(timeout=timedelta(minutes=3))
-        script.download_bytes(path, on_download=dummy)
-        script = PerformanceScript(script)
-        yield script
+            await lock.acquire()
+            value = bytes(self.transfer_mb * 1024 * 1024)
+            path = "/golem/output/dummy"
+            logger.info(f" Provider: {self.provider_id} . 🚀 Starting transfer test. ")
+            script = self._ctx.new_script(timeout=timedelta(minutes=3))
+            script.upload_bytes(value, path)
+            script = PerformanceScript(script)
+            yield script
+            upload = script.calculate_transfer(self.transfer_mb)
 
-        download = script.calculate_transfer(self.transfer_mb)
-        logger.info(
-            f"🎉 Provider: {self.provider_id}. Completed transfer test: ⬆ upload {upload} MB/s, ⬇ download {download} MB/s"
-        )
-        transfer_table.append([self.provider_id, upload, download])
+            script = self._ctx.new_script(timeout=timedelta(minutes=3))
+            script.download_bytes(path, on_download=dummy)
+            script = PerformanceScript(script)
+            yield script
 
-        lock.release()
+            download = script.calculate_transfer(self.transfer_mb)
+            logger.info(
+                f" Provider: {self.provider_id} . 🎉 Finished transfer test: ⬆ upload {upload} MB/s, ⬇ download {download} MB/s"
+            )
+            transfer_table.append([self.provider_id, upload, download])
+
+            lock.release()
 
         network_addresses.append(server_ip)
 
@@ -139,7 +142,7 @@ class PerformanceService(Service):
         neighbour_count = len(network_addresses) - 1
         completion_state[client_ip] = set()
 
-        logger.info(f"{self.provider_id}: running")
+        logger.info(f"{self.provider_id}: 🏃 running")
         await asyncio.sleep(5)
 
         while len(completion_state[client_ip]) < neighbour_count:
@@ -167,7 +170,7 @@ class PerformanceService(Service):
 
                 await asyncio.sleep(1)
 
-                logger.info(f"{self.provider_id}: computing on {ip_provider_id[server_ip]}")
+                logger.info(f"{self.provider_id}: 🔄 computing on {ip_provider_id[server_ip]}")
 
                 try:
                     output_file_vpn_transfer = (
@@ -179,7 +182,7 @@ class PerformanceService(Service):
                     script.run(
                         "/bin/bash",
                         "-c",
-                        f"ping -c 10 {server_ip} > /golem/output/{output_file_vpn_ping}",
+                        f'ping -c 10 {server_ip} | pingparsing - | jq \'del(.destination) | {{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_ping}',
                     )
                     yield script
 
@@ -196,7 +199,7 @@ class PerformanceService(Service):
                     script.run(
                         "/bin/bash",
                         "-c",
-                        f"iperf3 -c {server_ip} --logfile /golem/output/{output_file_vpn_transfer}",
+                        f"iperf3 -c {server_ip} -f M -w 60000 --logfile /golem/output/{output_file_vpn_transfer}",
                     )
                     yield script
 
@@ -209,10 +212,10 @@ class PerformanceService(Service):
                     yield script
 
                     completion_state[client_ip].add(server_ip)
-                    logger.info(f"✅ {self.provider_id}: finished on {ip_provider_id[server_ip]}")
+                    logger.info(f" {self.provider_id}: ✅ finished on {ip_provider_id[server_ip]}")
 
                 except Exception as error:
-                    logger.info(f"💀 error: {error}")
+                    logger.info(f" 💀💀💀 error: {error}")
 
                 await lock.acquire()
                 computation_state_server[server_ip] = State.IDLE
@@ -221,7 +224,7 @@ class PerformanceService(Service):
 
             await asyncio.sleep(1)
 
-        logger.info(f"{self.provider_id}: finished computing")
+        logger.info(f"{self.provider_id}: 🎉 finished computing")
 
         # keep running - nodes may want to compute on this node
         while len(completion_state) < neighbour_count or not all(
@@ -229,7 +232,7 @@ class PerformanceService(Service):
         ):
             await asyncio.sleep(1)
 
-        logger.info(f"🚪 {self.provider_id}: exiting")
+        logger.info(f"{self.provider_id}: 🚪 exiting")
 
     async def reset(self):
         # We don't have to do anything when the service is restarted
@@ -244,6 +247,7 @@ async def main(
     num_instances,
     running_time,
     transfer_mb,
+    transfer_test,
     instances=None,
 ):
     async with Golem(
@@ -259,7 +263,10 @@ async def main(
         network = await golem.create_network("192.168.0.1/24")
         cluster = await golem.run_service(
             PerformanceService,
-            instance_params=[{"transfer_mb": transfer_mb} for i in range(num_instances)],
+            instance_params=[
+                {"transfer_mb": transfer_mb, "transfer_test": transfer_test}
+                for i in range(num_instances)
+            ],
             network=network,
             num_instances=num_instances,
             expiration=datetime.now(timezone.utc)
@@ -267,22 +274,6 @@ async def main(
             + EXPIRATION_MARGIN
             + timedelta(seconds=running_time),
         )
-
-        instances = cluster.instances
-
-        # def still_starting():
-        #     return any(i.state in (ServiceState.pending, ServiceState.starting) for i in instances)
-        #
-        # # wait until all remote http instances are started
-        #
-        # while still_starting() and datetime.now() < commissioning_time + STARTING_TIMEOUT:
-        #     logger.info(f"Cluster is starting. Instances: {instances}")
-        #     await asyncio.sleep(5)
-        #
-        # if still_starting():
-        #     raise Exception(
-        #         f"Failed to start instances after {STARTING_TIMEOUT.total_seconds()} seconds"
-        #     )
 
         start_time = datetime.now()
 
@@ -332,6 +323,12 @@ if __name__ == "__main__":
             "How many MB of data are transferred during transfer test between requestor and providers (in Mega Bytes, default: %(default)MB)"
         ),
     )
+    parser.add_argument(
+        "--transfer-test",
+        default=False,
+        type=bool,
+        help=("Enable transfer test"),
+    )
     now = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
     parser.set_defaults(log_file=f"net-measurements-tool-{now}.log")
     args = parser.parse_args()
@@ -344,6 +341,7 @@ if __name__ == "__main__":
             num_instances=args.num_instances,
             running_time=args.running_time,
             transfer_mb=args.transfer_mb,
+            transfer_test=args.transfer_test,
         ),
         log_file=args.log_file,
     )
