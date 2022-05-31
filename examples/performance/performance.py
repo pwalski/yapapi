@@ -297,12 +297,14 @@ async def main(
                 break
 
         cluster.stop()
-        print(f"Transfer test with file size {transfer_mb} MB")
-        print(
-            tabulate(
-                transfer_table, ["provider id", "download MB/s", "upload MB/s"], tablefmt="grid"
+
+        if len(transfer_table) != 0:
+            print(f"Transfer test with file size {transfer_mb} MB")
+            print(
+                tabulate(
+                    transfer_table, ["provider id", "download MB/s", "upload MB/s"], tablefmt="grid"
+                )
             )
-        )
 
 
 if __name__ == "__main__":
