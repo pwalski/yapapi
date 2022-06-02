@@ -637,7 +637,7 @@ class _Engine:
         self,
         job: "Job",
         run_worker: Callable[[WorkContext], Awaitable],
-        on_agreement_ready: Callable[[Agreement], None] = None,
+        on_agreement_ready: Optional[Callable[[Agreement], None]] = None,
     ) -> Optional[asyncio.Task]:
         loop = asyncio.get_event_loop()
 
@@ -653,6 +653,8 @@ class _Engine:
 
             job.emit(events.WorkerStarted, agreement=agreement)
 
+            activity_start_time = datetime.now()
+
             try:
                 activity = await self.create_activity(agreement.id)
             except Exception:
@@ -662,7 +664,7 @@ class _Engine:
             work_context = WorkContext(activity, agreement, self.storage_manager, emitter=job.emit)
             work_context.emit(events.ActivityCreated)
 
-            self._activity_created_at[activity.id] = datetime.now()
+            self._activity_created_at[activity.id] = activity_start_time
 
             async with activity:
                 self.accept_debit_notes_for_agreement(job.id, agreement.id)
