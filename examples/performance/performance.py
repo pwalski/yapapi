@@ -42,6 +42,8 @@ completion_state = {}
 ip_provider_id = {}
 network_addresses = []
 transfer_table = []
+vpn_ping_table = []
+vpn_transfer_table = []
 
 
 class State(Enum):
@@ -181,42 +183,59 @@ class PerformanceService(Service):
                         f"vpn_transfer_client_{client_ip}_to_server_{server_ip}_logs.txt"
                     )
                     output_file_vpn_ping = f"vpn_ping_node_{client_ip}_to_node_{server_ip}_logs.txt"
+                    #
+                    # script = self._ctx.new_script(timeout=timedelta(minutes=3))
+                    # future_result = script.run(
+                    #     "/bin/bash",
+                    #     "-c",
+                    #     # f'ping -c 10 {server_ip} | pingparsing - | jq \'del(.destination) | {{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_ping}',
+                    #     f'ping -c 10 {server_ip} | pingparsing - | jq \'del(.destination) | {{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\'',
+                    # )
+                    # yield script
+                    #
+                    # result = (await future_result).stdout
+                    # data = json.loads(result)
+                    # vpn_ping_table.append(
+                    #     {
+                    #         "client": data["client"],
+                    #         "server": data["server"],
+                    #         "packet_loss_percentage": data["packet_loss_rate"],
+                    #         "rtt_min_ms": data["rtt_min"],
+                    #         "rtt_avg_ms": data["rtt_avg"],
+                    #         "rtt_max_ms": data["rtt_max"],
+                    #     }
+                    # )
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
+
                     future_result = script.run(
                         "/bin/bash",
                         "-c",
-                        f'ping -c 10 {server_ip} | pingparsing - | jq \'del(.destination) | {{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_ping}',
+                        # f'iperf3 -c {server_ip} -f M -w 60000 -J | jq \'{{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_transfer}',
+                        f'iperf3 -c {server_ip} -f M -w 60000 -J | jq \'{{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\'',
                     )
                     yield script
 
-                    result = (await future_result).stdout
-                    print(result.strip() if result else "")
-
-                    script = self._ctx.new_script(timeout=timedelta(minutes=3))
-                    dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-                    script.download_file(
-                        f"/golem/output/{output_file_vpn_ping}",
-                        f"golem/output/{dt}_{output_file_vpn_ping}",
+                    result = await future_result
+                    result1 = result.stdout
+                    print(f"{TEXT_COLOR_CYAN}{result1}{TEXT_COLOR_DEFAULT}")
+                    data = json.loads(result1)
+                    vpn_transfer_table.append(
+                        {
+                            "client": data["client"],
+                            "server": data["server"],
+                            # "start": data["start"]["connected"][0]["socket"],
+                            "bits_per_second": data["intervals"][0]["sum"]["bits_per_second"]
+                        }
                     )
-                    yield script
 
-                    script = self._ctx.new_script(timeout=timedelta(minutes=3))
-
-                    script.run(
-                        "/bin/bash",
-                        "-c",
-                        f'iperf3 -c {server_ip} -f M -w 60000 -J | jq \'{{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_transfer}',
-                    )
-                    yield script
-
-                    script = self._ctx.new_script(timeout=timedelta(minutes=3))
-                    dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-                    script.download_file(
-                        f"/golem/output/{output_file_vpn_transfer}",
-                        f"golem/output/{dt}_{output_file_vpn_transfer}",
-                    )
-                    yield script
+                    # script = self._ctx.new_script(timeout=timedelta(minutes=3))
+                    # dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+                    # script.download_file(
+                    #     f"/golem/output/{output_file_vpn_transfer}",
+                    #     f"golem/output/{dt}_{output_file_vpn_transfer}",
+                    # )
+                    # yield script
 
                     completion_state[client_ip].add(server_ip)
                     logger.info(f"{self.provider_id}: ✅ finished on {ip_provider_id[server_ip]}")
@@ -296,6 +315,30 @@ async def main(
 
         cluster.stop()
 
+        if len(vpn_ping_table) != 0:
+            ping_result_json = json.dumps(vpn_ping_table)
+
+            print(f"VPN ping test between providers")
+            result = pd.read_json(ping_result_json, orient="records")
+            print(result)
+
+            # if download_json = True:
+            dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+            with open(f"vpn_ping_test_result_{dt}.json", "a+") as file:
+                file.write(ping_result_json)
+
+        if len(vpn_transfer_table) != 0:
+            vpn_transfer_result_json = json.dumps(vpn_transfer_table)
+
+            print(f"VPN transfer test between providers")
+            result = pd.read_json(vpn_transfer_result_json, orient="records")
+            print(result)
+
+            # if download_json = True:
+            dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+            with open(f"vpn_transfer_test_result_{dt}.json", "a+") as file:
+                file.write(vpn_transfer_result_json)
+
         if len(transfer_table) != 0:
             transfer_result_json = json.dumps(transfer_table)
 
@@ -305,7 +348,7 @@ async def main(
 
             # if download_json = True:
             dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
-            with open(f"golem/output/{dt}_transfer_test_result.json", "a+") as file:
+            with open(f"transfer_test_result_{dt}.json", "a+") as file:
                 file.write(transfer_result_json)
 
 
