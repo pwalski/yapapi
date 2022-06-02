@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import asyncio
+import json
+import pandas as pd
 
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -108,7 +110,7 @@ class PerformanceService(Service):
             await lock.acquire()
             value = bytes(self.transfer_mb * 1024 * 1024)
             path = "/golem/output/dummy"
-            logger.info(f" Provider: {self.provider_id} . 🚀 Starting transfer test. ")
+            logger.info(f"Provider: {self.provider_id} . 🚀 Starting transfer test. ")
             script = self._ctx.new_script(timeout=timedelta(minutes=3))
             script.upload_bytes(value, path)
             script = PerformanceScript(script)
@@ -122,9 +124,11 @@ class PerformanceService(Service):
 
             download = script.calculate_transfer(self.transfer_mb)
             logger.info(
-                f" Provider: {self.provider_id} . 🎉 Finished transfer test: ⬆ upload {upload} MB/s, ⬇ download {download} MB/s"
+                f"Provider: {self.provider_id} . 🎉 Finished transfer test: ⬆ upload {upload} MByte/s, ⬇ download {download} MByte/s"
             )
-            transfer_table.append([self.provider_id, upload, download])
+            transfer_table.append(
+                {"provider_id": self.provider_id, "upload_mb_s": upload, "download_mb_s": download}
+            )
 
             lock.release()
 
@@ -179,12 +183,15 @@ class PerformanceService(Service):
                     output_file_vpn_ping = f"vpn_ping_node_{client_ip}_to_node_{server_ip}_logs.txt"
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
-                    script.run(
+                    future_result = script.run(
                         "/bin/bash",
                         "-c",
                         f'ping -c 10 {server_ip} | pingparsing - | jq \'del(.destination) | {{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_ping}',
                     )
                     yield script
+
+                    result = (await future_result).stdout
+                    print(result.strip() if result else "")
 
                     script = self._ctx.new_script(timeout=timedelta(minutes=3))
                     dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
@@ -199,7 +206,7 @@ class PerformanceService(Service):
                     script.run(
                         "/bin/bash",
                         "-c",
-                        f"iperf3 -c {server_ip} -f M -w 60000 --logfile /golem/output/{output_file_vpn_transfer}",
+                        f'iperf3 -c {server_ip} -f M -w 60000 -J | jq \'{{"server":"{ip_provider_id[server_ip]}"}} + .| {{"client":"{self.provider_id}"}} + .\' > /golem/output/{output_file_vpn_transfer}',
                     )
                     yield script
 
@@ -212,7 +219,7 @@ class PerformanceService(Service):
                     yield script
 
                     completion_state[client_ip].add(server_ip)
-                    logger.info(f" {self.provider_id}: ✅ finished on {ip_provider_id[server_ip]}")
+                    logger.info(f"{self.provider_id}: ✅ finished on {ip_provider_id[server_ip]}")
 
                 except Exception as error:
                     logger.info(f" 💀💀💀 error: {error}")
@@ -290,12 +297,16 @@ async def main(
         cluster.stop()
 
         if len(transfer_table) != 0:
+            transfer_result_json = json.dumps(transfer_table)
+
             print(f"Transfer test with file size {transfer_mb} MB")
-            print(
-                tabulate(
-                    transfer_table, ["provider id", "download MB/s", "upload MB/s"], tablefmt="grid"
-                )
-            )
+            result = pd.read_json(transfer_result_json, orient="records")
+            print(result)
+
+            # if download_json = True:
+            dt = datetime.now().strftime("%Y-%m-%d_%H.%M.%S")
+            with open(f"golem/output/{dt}_transfer_test_result.json", "a+") as file:
+                file.write(transfer_result_json)
 
 
 if __name__ == "__main__":
