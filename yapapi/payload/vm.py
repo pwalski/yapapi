@@ -56,7 +56,7 @@ class VmRequest(ExeUnitRequest):
 
 @dataclass
 class VmManifestRequest(ExeUnitManifestRequest):
-    package_format: VmPackageFormat = prop_base.prop("golem.srv.comp.vm.package_format")
+    package_format: VmPackageFormat = prop_base.prop("golem.srv.comp.vm.package_format", default=VmPackageFormat.GVMKIT_SQUASH)
 
 
 @dataclass(frozen=True)

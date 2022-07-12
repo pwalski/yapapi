@@ -38,8 +38,10 @@ class ExeUnitRequest(Model):
 
 @dataclass
 class ExeUnitManifestRequest(Model):
-    manifest: str = prop("golem.experimental.srv.comp.payload")
-    manifest_sig: str = prop("golem.experimental.srv.comp.payload.sig")
+    manifest: str = prop("golem.srv.comp.payload")
+    manifest_sig: str = prop("golem.srv.comp.payload.sig")
+    manifest_sig_algorithm: Optional[str] = prop("golem.srv.comp.payload.sig.algorithm", default=None)
+    manifest_sig_public_key: Optional[str] = prop("golem.srv.comp.payload.sig.public-key", default=None)
 
 
 @deprecated(version="0.6.0", reason="this is part of yapapi.payload.vm now")
