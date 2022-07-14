@@ -97,6 +97,8 @@ class _VmPackage(Package):
 class _VmManifestPackage(Package):
     manifest: str
     manifest_sig: str
+    manifest_sig_algorithm: str
+    manifest_cert: str
     constraints: _VmConstraints
 
     async def resolve_url(self) -> str:
@@ -107,6 +109,8 @@ class _VmManifestPackage(Package):
         demand.add(VmManifestRequest(
             manifest=self.manifest,
             manifest_sig=self.manifest_sig,
+            manifest_sig_algorithm=self.manifest_sig_algorithm,
+            manifest_cert=self.manifest_cert,
             package_format=VmPackageFormat.GVMKIT_SQUASH
         ))
 
@@ -114,6 +118,8 @@ class _VmManifestPackage(Package):
 async def manifest(
     manifest: str = None,
     manifest_sig: str = None,
+    manifest_sig_algorithm: str = None,
+    manifest_cert: str = None,
     min_mem_gib: float = 0.5,
     min_storage_gib: float = 2.0,
     min_cpu_threads: int = 1,
@@ -125,6 +131,8 @@ async def manifest(
     return _VmManifestPackage(
         manifest=manifest,
         manifest_sig=manifest_sig,
+        manifest_sig_algorithm=manifest_sig_algorithm,
+        manifest_cert=manifest_cert,
         constraints=constraints
     )
 
