@@ -12,28 +12,77 @@ from yapapi.payload import vm
 class ChainlinkService(Service):
     @staticmethod
     async def get_payload():
-        manifest = "eyJ2ZXJzaW9uIjoiMC4xLjAiLCJjcmVhdGVkQXQiOiIyMDIxLTExLTA5VDE5OjE5OjQxL" \
-                   "jA1Mzc1MjI4MFoiLCJleHBpcmVzQXQiOiIyMDMxLTExLTA3VDE5OjE5OjQxLjA1Mzc1NV" \
-                   "oiLCJtZXRhZGF0YSI6eyJuYW1lIjoiZXhhbXBsZSBtYW5pZmVzdCIsImRlc2NyaXB0aW9" \
-                   "uIjoiZXhhbXBsZSBkZXNjcmlwdGlvbiIsInZlcnNpb24iOiIwLjEuMCJ9LCJwYXlsb2Fk" \
-                   "IjpbeyJwbGF0Zm9ybSI6eyJhcmNoIjoieDg2XzY0Iiwib3MiOiJsaW51eCJ9LCJ1cmxzI" \
-                   "jpbImh0dHA6Ly95YWNuMi5kZXYuZ29sZW0ubmV0d29yazo4MDAwL2RvY2tlci1jaGFpbm" \
-                   "xpbmstbGF0ZXN0LTEzZDQxOWEyMjcuZ3ZtaSJdLCJoYXNoIjoic2hhMzo1NWFhMTkwOWY" \
-                   "wM2I1N2UyNWEyZjExNzkyZGVkMTAwYzQzMDI5NjMzNWVkMmNjZjk1NTRkY2Y5ZCJ9XSwi" \
-                   "Y29tcE1hbmlmZXN0Ijp7InZlcnNpb24iOiIwLjEuMCIsInNjcmlwdCI6eyJjb21tYW5kc" \
-                   "yI6WyJydW4gLioiLCJ0cmFuc2ZlciAuKiJdLCJtYXRjaCI6InJlZ2V4In0sIm5ldCI6ey" \
-                   "JpbmV0Ijp7Im91dCI6eyJwcm90b2NvbHMiOlsiaHR0cCIsImh0dHBzIiwid3MiLCJ3c3M" \
-                   "iXX19fX19"
+        manifest = "ewogICJ2ZXJzaW9uIjogIjAuMS4wIiwKICAiY3JlYXRlZEF0IjogIjIwMjEtMTEtMDlUMTk6MTk6" \
+            "NDEuMDUzNzUyMjgwWiIsCiAgImV4cGlyZXNBdCI6ICIyMDMxLTExLTA3VDE5OjE5OjQxLjA1Mzc1" \
+            "NVoiLAogICJtZXRhZGF0YSI6IHsKICAgICJuYW1lIjogImV4YW1wbGUgbWFuaWZlc3QiLAogICAg" \
+            "ImRlc2NyaXB0aW9uIjogImV4YW1wbGUgZGVzY3JpcHRpb24iLAogICAgInZlcnNpb24iOiAiMC4x" \
+            "LjAiCiAgfSwKICAicGF5bG9hZCI6IFsKICAgIHsKICAgICAgInBsYXRmb3JtIjogewogICAgICAg" \
+            "ICJhcmNoIjogIng4Nl82NCIsCiAgICAgICAgIm9zIjogImxpbnV4IgogICAgICB9LAogICAgICAi" \
+            "dXJscyI6IFsKICAgICAgICAiaHR0cDovL3lhY24yLmRldi5nb2xlbS5uZXR3b3JrOjgwMDAvZG9j" \
+            "a2VyLWNoYWlubGluay1sYXRlc3QtMTNkNDE5YTIyNy5ndm1pIgogICAgICBdLAogICAgICAiaGFz" \
+            "aCI6ICJzaGEzOjU1YWExOTA5ZjAzYjU3ZTI1YTJmMTE3OTJkZWQxMDBjNDMwMjk2MzM1ZWQyY2Nm" \
+            "OTU1NGRjZjlkIgogICAgfQogIF0sCiAgImNvbXBNYW5pZmVzdCI6IHsKICAgICJ2ZXJzaW9uIjog" \
+            "IjAuMS4wIiwKICAgICJzY3JpcHQiOiB7CiAgICAgICJjb21tYW5kcyI6IFsKICAgICAgICAicnVu" \
+            "IC4qIiwKICAgICAgICAidHJhbnNmZXIgLioiCiAgICAgIF0sCiAgICAgICJtYXRjaCI6ICJyZWdl" \
+            "eCIKICAgIH0sCiAgICAibmV0IjogewogICAgICAiaW5ldCI6IHsKICAgICAgICAib3V0Ijogewog" \
+            "ICAgICAgICAgInByb3RvY29scyI6IFsKICAgICAgICAgICAgImh0dHAiLAogICAgICAgICAgICAi" \
+            "aHR0cHMiLAogICAgICAgICAgICAid3MiLAogICAgICAgICAgICAid3NzIgogICAgICAgICAgXQog" \
+            "ICAgICAgIH0KICAgICAgfQogICAgfQogIH0KfQo="
 
-        manifest_sig = "006df8d9f48cf9a25d7faeb6c113b1c85c7a1afc929d440d940327c34b6cae9b4" \
-                       "128d570fc59d22b28e9eced5a57140e0e9f411682272f76c5b67b8d0b3f95b286"
+        manifest_sig = "NxYK5Yjx61rtwAfMvT/psAnGfZZ9HEhpF2fqdJ8LnHMhMVfba+sQ6kbwQekbxp+7" \
+            "+R9eD9cRST5HohSD/aKwjPiLb0cuy354IwyRyCFd4z9JQppY5w9X0HCl57L4NU82" \
+            "VkTRK2DK735QY6eCmu6GIdlNVNhrTtxgQLCFT/O3TVaTyRbNcT+JcnHgS8gmnvLB" \
+            "oOp/vTayNxskxdfGc055bh/Vm/aE4iRI5tKozA7gh9sdRirKqggygktJPVjDRu6E" \
+            "GGMfmDslxDWwJoNnx4NOjIk3t7umLeaL5kqYlVNpO7endh40MSQWUdnhfZ0vcg0B" \
+            "dIzqFwewswYwo/zoKMNvew=="
+
+        manifest_sig_algorithm = "sha256"
+
+        manifest_cert = "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUZsVENDQTMyZ0F3SUJBZ0lDRUFBd0RRWUpL" \
+            "b1pJaHZjTkFRRUxCUUF3Z1pjeEN6QUpCZ05WQkFZVEFsQk0KTVJZd0ZBWURWUVFJREExTlljT0Z3" \
+            "b0p2Y0c5c2MydGhNUll3RkFZRFZRUUtEQTFIYjJ4bGJTQk9aWFIzYjNKcgpNUmd3RmdZRFZRUUxE" \
+            "QTlIYjJ4bGJTQkxjbUZydzRQQ3MzY3hEakFNQmdOVkJBTU1CVWR2YkdWdE1TNHdMQVlKCktvWklo" \
+            "dmNOQVFrQkZoOXdjbnBsYlhsemJHRjNMbmRoYkhOcmFVQm5iMnhsYlM1dVpYUjNiM0pyTUI0WERU" \
+            "SXkKTURjeE5EQTJOVGMxT0ZvWERUSXpNRGN5TkRBMk5UYzFPRm93ZlRFTE1Ba0dBMVVFQmhNQ1VF" \
+            "d3hGakFVQmdOVgpCQWdNRFUxaHc0WENnbTl3YjJ4emEyRXhGakFVQmdOVkJBb01EVWR2YkdWdElF" \
+            "NWxkSGR2Y21zeEdEQVdCZ05WCkJBTU1EMGR2YkdWdElGSmxjWFZsYzNSdmNqRWtNQ0lHQ1NxR1NJ" \
+            "YjNEUUVKQVJZVmNtVnhkV1Z6ZEc5eVFHRmsKWkhKbGMzTXVZMjl0TUlJQklqQU5CZ2txaGtpRzl3" \
+            "MEJBUUVGQUFPQ0FROEFNSUlCQ2dLQ0FRRUF3Zm9PQUxwcQpDVnhJMWhpTDQzNUJGbFh3WEdkQWxW" \
+            "ZDA5cVFxVHNvbXFRVmw3ODYxOUtkREJKNWZtRzdvODFIKzJncDRmbFFFCjl3elR4VnZwYURubVFT" \
+            "bTlMcXRyZzF5UVBRZnNjOEljOWg3ZmgyVWtzSU56ZUxEY2p2M2RYWXhHSmc2enZMd3YKK3EyUU9u" \
+            "R2xmdS9ZUStQd3h0Yll1N3ptaUNBYUliT3lSSHZXSG9Ja3Y2Ty8xNEJIaUg5YTRNaXZJaDhmN0Rq" \
+            "bwo0US8yUWhSczB1TTVNUXRLQ2U3K2xuOGE5S3RqSHZ2QlBoZkMwaDBrallKUlJpTHBPZUpWOVp1" \
+            "OXhyOUhTem50CktGVjMxaE5hNHpYUWxlMmliSG5LZTZlN09PYW9BV1MySHlOdTZjRnJwN1UwRThN" \
+            "cFJuZVNrT1gzZTVRYnJzUWwKSjFuOWdqMFYyaXlVaHdJREFRQUJvNElCQWpDQi96QUpCZ05WSFJN" \
+            "RUFqQUFNQkVHQ1dDR1NBR0crRUlCQVFRRQpBd0lHUURBekJnbGdoa2dCaHZoQ0FRMEVKaFlrVDNC" \
+            "bGJsTlRUQ0JIWlc1bGNtRjBaV1FnVTJWeWRtVnlJRU5sCmNuUnBabWxqWVhSbE1CMEdBMVVkRGdR" \
+            "V0JCUzZOTElGTXJQTkFPZjBna3J6QXdreUhTcGwxVEJtQmdOVkhTTUUKWHpCZGdCUXpNZmt4Nm9C" \
+            "NFo2RlFPT3ZYK2tsbUJSWlJHYUZCcEQ4d1BURUxNQWtHQTFVRUJoTUNVRXd4RmpBVQpCZ05WQkFn" \
+            "TURVMWh3NFhDZ205d2IyeHphMkV4RmpBVUJnTlZCQW9NRFVkdmJHVnRJRTVsZEhkdmNtdUNBaEFB" \
+            "Ck1BNEdBMVVkRHdFQi93UUVBd0lGb0RBVEJnTlZIU1VFRERBS0JnZ3JCZ0VGQlFjREFUQU5CZ2tx" \
+            "aGtpRzl3MEIKQVFzRkFBT0NBZ0VBczgxdTZUT2V6cU1veW8rejcwWU5aQmF0QWQzUk85ZC9xR25R" \
+            "QzNtdWxabDFWekxGcllFRwpnOGxhK0cyaVMyYk1LK1ZPNmVZa1NBRndodWkwQnEzSFhtVmorTlVR" \
+            "VHpSaEN1aWRrclhlSEY0bnI4QzBqb1YyCnJ3QldKbG9CM3EwaVNJcmlVbzdUcDFDQUJVdFNEaFZu" \
+            "UVNwRVdpNUxGLzNDYlhMUWNZa1RNZVJJZjdwMlVwMWsKZU5QcjdTY2V5dFErNThxeTdTbktZUWNI" \
+            "YWplbmhyUVJvK1FaS1k0ZkVJc1kzVWhNYkFsM3JEME5UN2dnYmZFOApWY0hXQVpNcEtldlhiL2kx" \
+            "MVE1Q0FsRzdXS0Y4MnRLcXFic09ORTlhZWNhWlBNWC9qSXhhSkZDR1dVUGJ4SjNRCnpjK2VmZmpH" \
+            "WndDQmNwcWJJdzlha0UvSGdjKzdFcS9tVjFJUGR5UHhRdXhLN214dkQrM3M2U0JlcGNMckF5ckcK" \
+            "TUJIdEkybC9Pc1JlcHpDYi9xd29UaDZ4OW1yMk9RWFUxZTgzQ1g4VzZ1ejRQdkErNjRwTmNJMjFP" \
+            "ZkRiNEdCbwpNSXpkTk9XVm9KV09KTnMvOHVXQzNqZHVJNXhEQ1NnMGdTV0RmVlBTZlZ0cS8ydU51" \
+            "OXFSeFNLdjFiMUc4Z2dLClRVZmtLTVFYTlNYdmRkT2JwUVkvR0xHeGUzSTRGR2F4NmZtWjluc3pF" \
+            "cEhJUzdYVXNBMGtmeEt2enJ0Y2FZVnoKOFVEeExyUDVzYzltQVg0TUN3T2ZnSmJqcUxuL0QvOW9x" \
+            "TlVvZ2Z2VURqTndXRUFiZ0tyRTJxb3RsUFFSZDFZNgo1VmJRSGFxeXFOMFRBT2dTdXNtcHFqRUVq" \
+            "NGpTYjJjcHRQb2p2ZnZyVmkzTS84SlpybHY3YXpZPQotLS0tLUVORCBDRVJUSUZJQ0FURS0tLS0t" \
+            "Cg=="
 
         return await vm.manifest(
             manifest=manifest,
             manifest_sig=manifest_sig,
+            manifest_sig_algorithm=manifest_sig_algorithm,
+            manifest_cert=manifest_cert,
             min_mem_gib=2.,
             min_cpu_threads=1,
-            capabilities=["inet"]
+            capabilities=["inet", "manifest-support"]
         )
 
     async def start(self):
@@ -110,8 +159,8 @@ class ChainlinkService(Service):
 
 
 async def main():
-    async with Golem(budget=1.0, subnet_tag="chainlink") as golem:
-        cluster = await golem.run_service(ChainlinkService, num_instances=3)
+    async with Golem(budget=1.0, subnet_tag="devnet-beta") as golem:
+        cluster = await golem.run_service(ChainlinkService, num_instances=1)
         while True:
             await asyncio.sleep(3)
 
